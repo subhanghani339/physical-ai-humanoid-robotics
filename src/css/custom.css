@@ -28,3 +28,24 @@
   --ifm-color-primary-lightest: #4fddbf;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Card background for dark mode */
+html[data-theme='dark'] {
+  --ifm-card-background-color: #2d2d2d;
+  --ifm-background-surface-color: #1a1a1a;
+}
+
+html[data-theme='light'] {
+  --ifm-card-background-color: #ffffff;
+  --ifm-background-surface-color: #f9fafb;
+}
+
+/* Remove default homepage features if they exist */
+.container .margin-bottom--lg {
+  margin-bottom: 0 !important;
+}
