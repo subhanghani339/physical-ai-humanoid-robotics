@@ -1,53 +1,59 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import google.generativeai as genai
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import VectorParams, Distance, PointStruct
+import cohere
+import hashlib
+import traceback
 import os
 from dotenv import load_dotenv
-import hashlib
-import time
 
 load_dotenv()
 
-app = FastAPI(title="Physical AI Chatbot API")
+# ----------------------
+# FastAPI App
+# ----------------------
+app = FastAPI(title="Cohere RAG Chatbot (Physical AI)")
 
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your domain
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure Gemini
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# ----------------------
+# Cohere Setup
+# ----------------------
+CO = cohere.Client(api_key=os.getenv("COHERE_API_KEY"))
+LLM_MODEL = "command-r-plus"               # Best 2025 model
+EMBED_MODEL = "embed-english-v3.0"         # Best embeddings model
 
-# Use Gemini 2.5 Flash
-model = genai.GenerativeModel("gemini-2.5-flash")
+# ----------------------
+# Qdrant Setup
+# ----------------------
+COLLECTION_NAME = "physical_ai_book"
 
-# Configure Qdrant
-qdrant_client = QdrantClient(
+qdrant = QdrantClient(
     url=os.getenv("QDRANT_URL"),
     api_key=os.getenv("QDRANT_API_KEY"),
 )
 
-COLLECTION_NAME = "physical_ai_book"
-
-# Initialize collection if it doesn't exist
+# Create collection if missing
 try:
-    qdrant_client.get_collection(COLLECTION_NAME)
-    print(f"✅ Collection '{COLLECTION_NAME}' already exists")
-except Exception:
-    print(f"Creating collection '{COLLECTION_NAME}'...")
-    qdrant_client.create_collection(
+    qdrant.get_collection(COLLECTION_NAME)
+except:
+    qdrant.create_collection(
         collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(size=768, distance=Distance.COSINE)
+        vectors_config=VectorParams(size=1024, distance=Distance.COSINE),
     )
-    print(f"✅ Collection '{COLLECTION_NAME}' created")
 
+
+# ----------------------
+# Request Models
+# ----------------------
 class ChatRequest(BaseModel):
     message: str
     selected_text: str = ""
@@ -57,104 +63,119 @@ class IndexRequest(BaseModel):
     source: str
 
 
+# ----------------------
+# Embeddings using Cohere
+# ----------------------
 def get_embedding(text: str):
-    """Generate embedding using Gemini"""
     try:
-        result = genai.embed_content(
-            model="models/text-embedding-3-small",
-            content=text,
-            task_type="embedding"
+        resp = CO.embed(
+            texts=[text],
+            model=EMBED_MODEL,
+            input_type="search_document"
         )
-        # Small delay to avoid rate limit
-        time.sleep(1)
-        return result['embedding']
-    except Exception as e:
-        print(f"Error generating embedding: {e}")
+        return resp.embeddings[0]
+    except Exception:
+        traceback.print_exc()
         return None
 
 
-@app.get("/")
-async def root():
-    return {
-        "message": "Physical AI Chatbot API",
-        "status": "running",
-        "endpoints": {
-            "chat": "/api/chat",
-            "index": "/api/index",
-            "health": "/health"
-        }
-    }
-
-@app.get("/health")
-async def health():
-    return {"status": "healthy"}
-
+# ----------------------
+# Index Endpoint
+# ----------------------
 @app.post("/api/index")
-async def index_content(request: IndexRequest):
-    """Index book content into Qdrant"""
-    try:
-        embedding = get_embedding(request.text)
-        if not embedding:
-            raise HTTPException(status_code=500, detail="Failed to generate embedding")
-        
-        text_id = int(hashlib.md5(request.text.encode()).hexdigest()[:8], 16)
-        
-        qdrant_client.upsert(
-            collection_name=COLLECTION_NAME,
-            points=[
-                PointStruct(
-                    id=text_id,
-                    vector=embedding,
-                    payload={
-                        "text": request.text,
-                        "source": request.source
-                    }
-                )
-            ]
-        )
-        
-        return {"status": "success", "message": "Content indexed successfully", "id": text_id}
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def index_content(req: IndexRequest):
+    emb = get_embedding(req.text)
+    if emb is None:
+        raise HTTPException(status_code=500, detail="Embedding failed")
 
+    text_id = hashlib.md5(req.text.encode()).hexdigest()
+
+    qdrant.upsert(
+        collection_name=COLLECTION_NAME,
+        points=[
+            PointStruct(
+                id=text_id,
+                vector=emb,
+                payload={"text": req.text, "source": req.source},
+            )
+        ],
+    )
+
+    return {"status": "success", "id": text_id}
+
+
+# ----------------------
+# Chat / Retrieval Endpoint
+# ----------------------
 @app.post("/api/chat")
-async def chat(request: ChatRequest):
-    """Chat endpoint with RAG"""
-    try:
-        context = ""
-        
-        if request.selected_text:
-            context = f"Selected text: {request.selected_text}\n\n"
-        else:
-            query_embedding = get_embedding(request.message)
-            if query_embedding:
-                search_results = qdrant_client.search(
-                    collection_name=COLLECTION_NAME,
-                    query_vector=query_embedding,
-                    limit=3
-                )
-                if search_results:
-                    context = "Relevant information from the book:\n\n"
-                    for result in search_results:
-                        context += f"{result.payload['text']}\n\n"
-        
-        prompt = f"""You are a helpful assistant for a Physical AI & Humanoid Robotics textbook.
+async def chat(req: ChatRequest):
 
+    context = ""
+
+    # If user selected specific text (PDF highlight etc)
+    if req.selected_text:
+        context = f"Selected passage:\n{req.selected_text}\n"
+    else:
+        # Otherwise, semantic search from Qdrant
+        q_emb = get_embedding(req.message)
+        if q_emb:
+            search_result = qdrant.search(
+                collection_name=COLLECTION_NAME,
+                query_vector=q_emb,
+                limit=4
+            )
+
+            results = search_result.result 
+
+            if results:
+                context = "Relevant extracted sections:\n\n"
+                for r in results:
+                    context += f"- {r.payload['text']}\n\n"
+
+    # Cohere Prompt
+    prompt = f"""
+You are a robotics / humanoid AI expert trained on the textbook:
+
+📘 "Physical AI, Humanoid Robotics, ROS 2, NVIDIA Isaac and AI Engineering"
+
+Book Context:
 {context}
 
-User question: {request.message}
+User Question:
+{req.message}
 
-Please provide a clear, concise answer based on the context above. If the context doesn't contain relevant information, use your knowledge about robotics, ROS 2, NVIDIA Isaac, and AI to provide a helpful response."""
+Answer clearly, correctly and professionally.
+"""
 
-        response = model.generate_content(prompt)
-        
-        return {"answer": response.text, "context_used": bool(context)}
-    
+    try:
+        resp = CO.chat(
+            model=LLM_MODEL,
+            message=prompt,
+            temperature=0.2,
+        )
+        answer = resp.text
+
     except Exception as e:
-        print(f"Error in chat: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+    return {
+        "answer": answer,
+        "context_used": bool(context.strip()),
+    }
+
+
+# ----------------------
+# Health
+# ----------------------
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+# ----------------------
+# Run
+# ----------------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

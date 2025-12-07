@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npx create-docusaurus@latest:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": []
