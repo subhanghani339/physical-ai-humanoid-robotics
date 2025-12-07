@@ -6,37 +6,36 @@ sidebar_position: 2
 
 ## ROS 2 Architecture Overview
 
-ROS 2 (Robot Operating System 2) is a flexible framework for writing robot software. It provides a collection of tools, libraries, and conventions that aim to simplify the task of creating complex and robust robot applications. Its distributed architecture allows for modular development and deployment across multiple machines.
+ROS 2 (Robot Operating System 2) is a flexible framework for writing robot software. It provides a collection of tools, libraries, and conventions that aim to simplify the task of creating complex and robust robot applications. Its distributed nature allows for components to run on different machines and communicate seamlessly.
 
 Key architectural concepts:
 
-*   **Nodes**: Executable processes that perform computation (e.g., a node for reading sensor data, a node for controlling motors).
-*   **Topics**: A mechanism for nodes to asynchronously send data (messages) to each other. Nodes publish messages to topics, and other nodes subscribe to those topics.
-*   **Services**: A mechanism for nodes to synchronously request and receive responses from each other, similar to a function call.
-*   **Actions**: A higher-level abstraction for long-running, goal-oriented tasks. Actions provide feedback and allow for preemption.
-*   **Parameters**: Configuration values that can be set for nodes at runtime.
+*   **Nodes**: Executables that perform computation (e.g., a node for reading sensor data, a node for controlling motors).
+*   **Topics**: A publish/subscribe mechanism for nodes to exchange data asynchronously. Nodes publish messages to topics, and other nodes subscribe to those topics to receive the messages.
+*   **Services**: A request/reply mechanism for synchronous communication between nodes. A client node sends a request to a service server node and waits for a response.
+*   **Actions**: A long-running goal-oriented communication mechanism, built on topics and services, used for tasks that take time to complete (e.g., navigating to a goal, performing a complex manipulation).
 
 ## Nodes, Topics, Services, and Actions Explained
 
 ### Nodes
 
-A node is typically responsible for a single module of functionality (e.g., camera driver, motor controller, path planner). Multiple nodes can run concurrently and communicate with each other.
+Nodes are the fundamental building blocks of a ROS 2 system. Each node should ideally be responsible for a single, well-defined task. This modularity allows for easier debugging, development, and reuse of components.
 
 ### Topics
 
-Topics enable a publish-subscribe communication pattern. One node publishes information to a topic, and any number of other nodes can subscribe to that topic to receive the information.
+Topics are named buses over which nodes exchange messages. Messages are simple data structures. When a node publishes a message to a topic, all nodes subscribed to that topic receive a copy of the message.
 
 ### Services
 
-Services are used for request-response communication. A client node sends a request to a service server node and waits for a response. This is suitable for tasks that require an immediate result.
+Services enable nodes to make RPC-like function calls to other nodes. This is useful for tasks that require an immediate response, such as querying a sensor for its current reading or triggering a specific action that completes quickly.
 
 ### Actions
 
-Actions are designed for tasks that might take a long time to complete and where feedback on progress is important. An action client sends a goal to an action server, which then provides continuous feedback while processing the goal, and eventually sends a result.
+Actions are designed for tasks that might take a significant amount of time to complete and where the client needs feedback on the progress of the goal. An action client sends a goal to an action server, which then provides continuous feedback and a final result. The client can also preempt a goal.
 
 ## Code Example: Simple Publisher Node in Python
 
-This example demonstrates a basic ROS 2 publisher node that publishes a string message to a topic.
+This node will publish a simple "Hello, ROS 2!" message to a topic.
 
 ```python
 import rclpy
@@ -54,20 +53,15 @@ class MinimalPublisher(Node):
 
     def timer_callback(self):
         msg = String()
-        msg.data = f'Hello ROS 2: {self.i}'
+        msg.data = f'Hello, ROS 2!: {self.i}'
         self.publisher_.publish(msg)
         self.get_logger().info(f'Publishing: "{msg.data}"')
         self.i += 1
 
 def main(args=None):
     rclpy.init(args=args)
-
     minimal_publisher = MinimalPublisher()
     rclpy.spin(minimal_publisher)
-
-    # Destroy the node explicitly
-    # (optional - otherwise it will be done automatically
-    # when the garbage collector destroys the node object)
     minimal_publisher.destroy_node()
     rclpy.shutdown()
 
@@ -77,7 +71,7 @@ if __name__ == '__main__':
 
 ## Code Example: Simple Subscriber Node in Python
 
-This example shows a basic ROS 2 subscriber node that listens for messages on a topic.
+This node will subscribe to the topic from the publisher and print the received messages.
 
 ```python
 import rclpy
@@ -100,13 +94,8 @@ class MinimalSubscriber(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-
     minimal_subscriber = MinimalSubscriber()
     rclpy.spin(minimal_subscriber)
-
-    # Destroy the node explicitly
-    # (optional - otherwise it will be done automatically
-    # when the garbage collector destroys the node object)
     minimal_subscriber.destroy_node()
     rclpy.shutdown()
 
@@ -116,9 +105,9 @@ if __name__ == '__main__':
 
 ## Explanation of Launch Files
 
-Launch files in ROS 2 are XML or Python files used to start and configure multiple ROS 2 nodes and other processes simultaneously. They simplify the deployment of complex robotic systems.
+Launch files in ROS 2 are XML or Python files used to start and configure multiple ROS 2 nodes and other processes simultaneously. They simplify the process of setting up complex robot systems by allowing you to define the startup behavior of all components in a single file.
 
-Example (Python launch file):
+Example `my_robot_launch.py`:
 
 ```python
 from launch import LaunchDescription
@@ -130,24 +119,28 @@ def generate_launch_description():
             package='my_package',
             executable='minimal_publisher',
             name='my_publisher',
-            output='screen',
+            output='screen'
         ),
         Node(
             package='my_package',
             executable='minimal_subscriber',
             name='my_subscriber',
-            output='screen',
+            output='screen'
         ),
     ])
 ```
 
 ## Practical Exercise: Build a Temperature Monitoring System
 
-**Goal**: Create a simple ROS 2 system that simulates a temperature sensor and displays the readings.
+**Goal**: Create two ROS 2 nodes in Python:
+
+1.  A `temperature_sensor_node` that publishes simulated temperature readings (e.g., random numbers) to a topic named `/temperature` every second.
+2.  A `temperature_logger_node` that subscribes to `/temperature` and logs any temperature readings above a certain threshold (e.g., 25.0 degrees Celsius).
 
 **Steps**:
 
-1.  **Create a publisher node**: This node will simulate a temperature sensor, publishing random temperature values (e.g., between 20-30 degrees Celsius) to a `temperature_topic` every second.
-2.  **Create a subscriber node**: This node will subscribe to the `temperature_topic` and print the received temperature readings to the console.
-3.  **Create a launch file**: Configure a launch file to start both the publisher and subscriber nodes simultaneously.
-4.  **Test**: Run your launch file and observe the temperature readings in the subscriber's console output.
+1.  Create a new ROS 2 package.
+2.  Implement the `temperature_sensor_node.py`.
+3.  Implement the `temperature_logger_node.py`.
+4.  Create a launch file to start both nodes simultaneously.
+5.  Run your system and observe the output.

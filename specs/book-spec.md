@@ -139,3 +139,7 @@ Create sidebars.js with this structure:
 - Add custom CSS for code blocks
 - Make it mobile responsive
 - Add a floating chatbot button (placeholder for now)
+
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.Y9q7vtTLb-vvtex1_1t0RiY0meSO-6hHlf5aBVMlWvU
+
+https://bcdb7aa6-5414-4764-b3b1-87369b51a5ea.us-east4-0.gcp.cloud.qdrant.io
