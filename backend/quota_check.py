@@ -3,9 +3,11 @@ import pytz
 from datetime import datetime, timedelta
 import os
 import json
+from dotenv import load_dotenv
+
 
 # ====== CONFIG ======
-API_KEY = "AIzaSyB6tlL3lLFxH7IG9UboYucpvY-vhgQQF_8"
+API_KEY = os.getenv("GEMINI_API_KEY")
 DAILY_LIMIT = 1500     # default free quota
 LOG_FILE = "quota_log.json"
 USER_TIMEZONE = "Asia/Karachi"
