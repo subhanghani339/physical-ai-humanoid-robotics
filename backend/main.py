@@ -119,17 +119,20 @@ async def chat(req: ChatRequest):
         # Otherwise, semantic search from Qdrant
         q_emb = get_embedding(req.message)
         if q_emb:
-            search_result = qdrant.search(
+            search_result =  qdrant.query_points(
                 collection_name=COLLECTION_NAME,
-                query_vector=q_emb,
+                query=q_emb,
                 limit=4
             )
 
-            results = search_result.result 
+            results = search_result.points
+
+            # return results
 
             if results:
                 context = "Relevant extracted sections:\n\n"
                 for r in results:
+                    return r.payload['text']
                     context += f"- {r.payload['text']}\n\n"
 
     # Cohere Prompt
